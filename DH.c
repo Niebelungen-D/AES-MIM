@@ -1,4 +1,5 @@
 #include "DH.h"
+#include <string.h>
 #include <gmp.h>
 
 /**
@@ -19,9 +20,9 @@ again:
   memset(in_buf, 0, size);
   read(fd, in_buf, size);
   if (in_buf[size - 1] == 0x00 // full fill all the bytes
-    //   || in_buf[size - 1] == 0xff
-             )  // too big, can't find prime probably
-    goto again; 
+        //   || in_buf[size - 1] == 0xff
+      )                        // too big, can't find prime probably
+    goto again;
   return 0;
 }
 
@@ -44,8 +45,8 @@ void convert_mpz(mpz_t p, uint64_t *nums, int size) {
     mpz_set_ui(a[i], nums[i]);
   }
 
-  mpz_clear(p); 
-  for (int i = size - 1; i >= 0; i--) { // prime = (a*step + b)*step... 
+  mpz_clear(p);
+  for (int i = size - 1; i >= 0; i--) { // prime = (a*step + b)*step...
     mpz_add(p, p, a[i]);
     if (i == 0)
       break;
@@ -66,8 +67,8 @@ int check_prime(mpz_t prime) { return mpz_probab_prime_p(prime, 50); }
 
 /**
  * @brief generate p, and (make sure) it's a prime
- *      
- * @param prime 
+ *
+ * @param prime
  */
 void generate_p(mpz_t prime) {
   mpz_t a[4];
@@ -83,4 +84,10 @@ void generate_p(mpz_t prime) {
   } while (!check_prime(prime));
 
   gmp_printf("[+] prime = %Zd\n\n", prime);
+}
+
+void generate_pri_key(mpz_t prime) {
+  uint64_t nums[2];
+  gen_random_bytes((uint8_t *)nums, 0x10);
+  convert_mpz(prime, nums, sizeof(nums)); 
 }

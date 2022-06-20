@@ -1,13 +1,13 @@
 CC:=gcc
-CCFLAGS:=-g
+CCFLAGS:=-g -lgmp
 
 all: client server
 
 client: client.c
-	${CC} ${CCFLAGS} -o client
+	${CC} client.c DH.c ${CCFLAGS}  -o client
 
 server: server.c
-	${CC} ${CCFLAGS} -o server
+	${CC} server.c DH.c ${CCFLAGS}  -o server
 
 clean: 
 	rm -rf ./server ./client
