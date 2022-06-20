@@ -14,10 +14,32 @@
 #define SK_BUF_MAX 1024
 
 void die(const char *msg) {
-  fprintf(stderr, "%s\n", msg);
+  perror(msg);
   exit(1);
 }
 
+size_t writen(int fd, char *buf, size_t size)
+{
+    char *p = buf;
+    int ret;
+    int left = size;
+    while(left > 0)
+    {
+        if((ret = write(fd, p, left)) <= 0)
+        {
+            if(ret < 0 && errno == EINTR)
+            {
+                ret = 0;
+            }
+            else
+                return -1;
+        }
+        left -= ret;
+        p += ret;
+    }
+
+    return size - left;
+}
 
 int main(int argc, char *argv[]) {
   int sockfd = 0, n = 0;
@@ -31,8 +53,7 @@ int main(int argc, char *argv[]) {
 
   memset(recv_buf, 0, sizeof(recv_buf));
   if ((sockfd = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
-    printf("[!] Could not create socket \n");
-    exit(1);
+    die("[!] Could not create socket \n");
   }
 
   memset(&serv_addr, 0, sizeof(serv_addr));
@@ -41,17 +62,16 @@ int main(int argc, char *argv[]) {
   serv_addr.sin_port = htons(atoi(argv[2]));
 
   if (inet_pton(AF_INET, argv[1], &serv_addr.sin_addr) <= 0) {
-    printf("[!] inet_pton error occured\n");
-    exit(1);
+    die("[!] inet_pton error occured\n");
   }
 
   if (connect(sockfd, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0) {
-    printf("[!] Connect Failed \n");
-    exit(1);
+    die("[!] Connect Failed \n");
   }
   printf("[+] Server Connected\n");
 
   // recv/send data
 
+  close(sockfd);
   return 0;
 }
