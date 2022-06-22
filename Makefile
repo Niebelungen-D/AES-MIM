@@ -10,4 +10,4 @@ server: server.c
 	${CC} server.c DH.c ${CCFLAGS}  -o server
 
 clean: 
-	rm -rf ./server ./client
+	rm -rf ./server ./client 
