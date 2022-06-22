@@ -258,15 +258,15 @@ void inv_mix_columns(uint8_t *state) {
 
 
 /**
- * @brief allocate memory for expanded key
+ * @brief allocate memory for expanded key and key expanded
  *      aes-256: 4*15*4 = 240 bytes
  * @param key_size
- * @return uint8_t*
+ * @return uint8_t* expanded key
  */
-uint8_t *AES_init(size_t key_size) {
-  uint8_t *key = (uint8_t *)malloc(Nb * (Nr + 1) * 4);
-
-  return key;
+uint8_t *AES_init(uint8_t *key,size_t key_size) {
+  uint8_t *w = (uint8_t *)malloc(Nb * (Nr + 1) * 4);
+  key_expansion(key,w);
+  return w;
 }
 /**
  * @brief free memory for expanded key
@@ -342,11 +342,59 @@ void aes_inv_cipher(uint8_t *in, uint8_t *out, uint8_t *w) {
   for (i = 0; i < 4 * Nb; i++) {
     out[i] = state[i];
   }
-  
 }
 
+void *blk_xor(uint8_t *a, uint8_t *b, uint8_t *d) {
+  for (uint8_t i = 0; i < 16; i++) {
+    d[i] = gadd(a[i], b[i]);
+  }
+}
 
+void AES_set_iv(uint8_t *iv) {
+  if (iv == NULL) {
+    memset(ctr.nonce, 0, sizeof(ctr.nonce));
+  } else {
+    memcpy(ctr.nonce, iv, sizeof(ctr.nonce)); 
+  }
+  memset(ctr.cnt, 0, sizeof(ctr.cnt));
+}
 
+void AES_gcm_encrypt(void *in, size_t in_size, void *out, void *w, void *msg,
+                     void *m) {
+  size_t n_blk = (((in_size + 0x10 - 1) & (~(0x10 - 1))))/0x10;
+  size_t i;
+  uint8_t ek[0x10];
+  uint8_t mac[0x10];
 
+  bzero(mac, sizeof(mac));
+  blk_xor((uint8_t *)&ctr, mac, mac);
+  
+  for (i = 0; i < n_blk; i++) {
+    ctr.cnt[7] = i+1;
+    aes_cipher((uint8_t *)&ctr, ek, w);
+    blk_xor(in + i * 0x10, ek, out + i * 0x10);
 
+    blk_xor(out + i * 0x10, mac, mac);
+  }
+  
+  blk_xor(msg, mac, mac);
+  memcpy(m, mac, sizeof(mac));
+  // clear ctr
+  ctr.cnt[7] = 0;
+}
+
+void AES_gcm_decrypt(void *in, size_t in_size, void *out, void *w) {
+  size_t n_blk = ((in_size + 0x10 - 1) & (~(0x10 - 1)))/0x10;
+  size_t i;
+  uint8_t ek[0x10];
+  
+  for (i = 0; i < n_blk; i++) {
+    ctr.cnt[7] = i+1;
+    aes_cipher((uint8_t *)&ctr, ek, w);
+    blk_xor(in + i * 0x10, ek, out + i * 0x10);
+  }
+  
+  // clear ctr
+  ctr.cnt[7] = 0;
+} 
 

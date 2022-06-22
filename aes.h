@@ -57,11 +57,22 @@ static const uint8_t inv_s_box[256] = {
 static const uint8_t Rcon[11] = {
   0x8d, 0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80, 0x1b, 0x36 };
 
-uint8_t *AES_init(size_t key_size);
+
+struct ctr_blk {
+  uint8_t nonce[0x8];
+  uint8_t cnt[0x8];
+};
+
+struct ctr_blk ctr;
+
+uint8_t *AES_init(uint8_t *key,size_t key_size);
 void AES_free(uint8_t *key);
 void aes_cipher(uint8_t *in, uint8_t *out, uint8_t *w);
 void aes_inv_cipher(uint8_t *in, uint8_t *out, uint8_t *w);
-void AES_decrypt(void *plaintext, void *key, void *ciphertext);
+void AES_set_iv(uint8_t *iv);
+void AES_gcm_encrypt(void *in, size_t in_size, void *out, void *w, void *msg,void *m);
+void AES_gcm_decrypt(void *in, size_t in_size, void *out, void *w);
+// void AES_gcm_decrypt(void *in, void *key, void *ciphertext);
 void mix_columns(uint8_t *state);
 void inv_mix_columns(uint8_t *state);
 void shift_rows(uint8_t *state);
