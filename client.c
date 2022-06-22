@@ -12,8 +12,10 @@
 #include <time.h>
 #include <unistd.h>
 #include <gmp.h>
+#include "aes.h"
 
 #define SK_BUF_MAX 1024
+uint8_t AES_key[0x20];
 
 void die(const char *msg) {
   perror(msg);
@@ -107,6 +109,39 @@ void exchange_dh_key(int sockfd, mpz_t s) {
   gmp_printf("[+] share key S: %Zd\n\n", s);
 }
 
+void echo(int fd) {
+  uint8_t *w; // expanded key
+  int cnt = 0;
+  char send_buf[SK_BUF_MAX], recv_buf[SK_BUF_MAX], text[SK_BUF_MAX];
+  uint8_t msg[0x10], mac[0x10];
+
+  w = AES_init(AES_key, sizeof(AES_key));
+  AES_set_iv(NULL);
+  memcpy(text, "msg", 3); // msg header
+  bzero(msg, sizeof(msg));
+  bzero(mac, sizeof(mac));
+
+  while (1) {
+    printf("[+] Input message:");
+    fflush(stdout);
+    bzero(text + 3, sizeof(text) - 3);
+    bzero(send_buf, sizeof(send_buf));
+    cnt = read(0, text + 3, sizeof(text) - 3);
+
+    AES_gcm_encrypt(text, SK_BUF_MAX, send_buf, w, msg, mac);
+    writen(fd, send_buf, SK_BUF_MAX);
+
+    if (!strncmp(text + 3, "exit", 4)) {
+      break;
+    }
+
+    bzero(recv_buf, sizeof(recv_buf));
+    readn(fd, recv_buf, SK_BUF_MAX);
+    AES_gcm_decrypt(recv_buf, SK_BUF_MAX, recv_buf, w);
+    printf("[+] Recv message:%s\n", recv_buf + 3);
+  }
+}
+
 int main(int argc, char *argv[]) {
   int sockfd = 0, n = 0;
   char recv_buf[SK_BUF_MAX];
@@ -141,6 +176,14 @@ int main(int argc, char *argv[]) {
   mpz_t s;
   mpz_init(s);
   exchange_dh_key(sockfd, s);
+
+  bzero(AES_key, sizeof(AES_key));
+  mpz_get_str((char *)AES_key, 16, s);
+  mpz_clear(s);
+
+  printf("[+] Now we can send msg to the server\n");
+  echo(sockfd);
+  
   close(sockfd);
   return 0;
 }
