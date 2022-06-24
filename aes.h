@@ -63,7 +63,6 @@ struct ctr_blk {
   uint8_t cnt[0x8];
 };
 
-struct ctr_blk ctr;
 
 uint8_t *AES_init(uint8_t *key,size_t key_size);
 void AES_free(uint8_t *key);

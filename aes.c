@@ -3,28 +3,7 @@
 #include <stdint.h>
 #include <stdlib.h>
 
-// /**
-//  * @brief gariola multiplication
-//  * 
-//  * @param a 
-//  * @param b 
-//  * @return uint8_t 
-//  */
-// uint8_t gmul(uint8_t a, uint8_t b) {
-//     uint8_t p = 0;
-//     for (int i = 0; i < 8; i++) {
-//         if (b & 1) {
-//             p ^= a;
-//         }
-//         uint8_t hi = a & 0x80;
-//         a <<= 1;
-//         if (hi) {
-//             a ^= 0x1b;
-//         }
-//         b >>= 1;
-//     }
-//     return p;
-// }
+struct ctr_blk ctr;
 
 uint8_t gadd(uint8_t a, uint8_t b) {
   return a ^ b;

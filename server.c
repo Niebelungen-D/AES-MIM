@@ -20,7 +20,7 @@ const int portno = 5001;
 uint8_t AES_key[0x20];
 
 void die(const char *msg) {
-  die(msg);
+  perror(msg);
   exit(1);
 }
 
