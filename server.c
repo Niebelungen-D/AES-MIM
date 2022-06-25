@@ -24,7 +24,7 @@ void die(const char *msg) {
   exit(1);
 }
 
-ssize_t readn(int fd, char *buf, size_t n) // 从fd读取n个字节数据到buf
+ssize_t readn(int fd, char *buf, size_t n) 
 {
   size_t ret = 0;
   size_t left = n;
@@ -32,17 +32,17 @@ ssize_t readn(int fd, char *buf, size_t n) // 从fd读取n个字节数据到buf
 
   while (left > 0) {
   again:
-    if ((ret = read(fd, p, left)) < 0) // 从缓冲区读剩下的字节数
+    if ((ret = read(fd, p, left)) < 0) 
     {
-      if (errno == EINTR) // 遇到中断需要再次读取
+      if (errno == EINTR) // interrupt
         goto again;
       else
-        return -1;       // 出错了
-    } else if (ret == 0) // 后续没有数据了，返回已读取的字节数
+        return -1;       // error
+    } else if (ret == 0) 
       return n - left;
 
-    left -= ret; // 剩余字节数减去读到的字节数
-    p += ret;    // 移动buf的指针
+    left -= ret; 
+    p += ret;    // mov buf pointer
   }
   return n - left;
 }
@@ -138,16 +138,16 @@ void echo(int fd) {
 
 int psk(int sockfd)
 {
-    int flag = 1; // 若接收到的与发送的相同，则为0，否则为非0
+    int flag = 1; 
     unsigned char ch[SK_BUF_MAX], text[SK_BUF_MAX];
-    unsigned char *w;                                   // 保存客户端返回的密文
-    unsigned char key[32] = "0a12541bc5a2d6890f2536ffccab2e"; // 预共享密钥
+    unsigned char *w;                                   
+    unsigned char key[32] = "0a12541bc5a2d6890f2536ffccab2e"; 
 
     bzero(ch,SK_BUF_MAX);
-    gen_random_bytes(ch, 0x20); // 得到随机字符串
+    gen_random_bytes(ch, 0x20); // 
     // printf("psk string:%s\n\n", ch);
 
-    write(sockfd, ch, SK_BUF_MAX); // 明文发送给客户端
+    write(sockfd, ch, SK_BUF_MAX); // 
     bzero(text, SK_BUF_MAX);
     readn(sockfd, text, SK_BUF_MAX);
 

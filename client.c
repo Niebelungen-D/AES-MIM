@@ -24,7 +24,7 @@ void die(const char *msg) {
   exit(1);
 }
 
-ssize_t readn(int fd, char *buf, size_t n) // 从fd读取n个字节数据到buf
+ssize_t readn(int fd, char *buf, size_t n) 
 {
   size_t ret = 0;
   size_t left = n;
@@ -32,17 +32,17 @@ ssize_t readn(int fd, char *buf, size_t n) // 从fd读取n个字节数据到buf
 
   while (left > 0) {
   again:
-    if ((ret = read(fd, p, left)) < 0) // 从缓冲区读剩下的字节数
+    if ((ret = read(fd, p, left)) < 0) 
     {
-      if (errno == EINTR) // 遇到中断需要再次读取
+      if (errno == EINTR) // interrupt
         goto again;
       else
-        return -1;       // 出错了
-    } else if (ret == 0) // 后续没有数据了，返回已读取的字节数
+        return -1;       // error
+    } else if (ret == 0) 
       return n - left;
 
-    left -= ret; // 剩余字节数减去读到的字节数
-    p += ret;    // 移动buf的指针
+    left -= ret; 
+    p += ret;    // mov buf pointer
   }
   return n - left;
 }
@@ -111,11 +111,11 @@ void exchange_dh_key(int sockfd, mpz_t s) {
   gmp_printf("[+] share key S: %Zd\n\n", s);
 }
 
-// 客户端psk
+// client psk
 void psk(int sockfd)
 {
-    unsigned char text[SK_BUF_MAX], buf[SK_BUF_MAX];                                           // 存放接收到的密文
-    unsigned char key[32] = "0a12541bc5a2d6890f2536ffccab2e";         // 预共享密钥
+    unsigned char text[SK_BUF_MAX], buf[SK_BUF_MAX];                                          
+    unsigned char key[32] = "0a12541bc5a2d6890f2536ffccab2e"; 
     uint8_t msg[0x10], mac[0x10];
     bzero(msg, sizeof(msg));
     bzero(mac, sizeof(mac));
@@ -123,7 +123,7 @@ void psk(int sockfd)
     uint8_t *w;
     bzero(text, SK_BUF_MAX);
     readn(sockfd, text, SK_BUF_MAX);
-    printf("[+] psk message:%s\n", text);
+    // printf("[+] psk message:%s\n", text);
     // encrypt string
     w = AES_init(key, sizeof(key));
     AES_set_iv(NULL);
