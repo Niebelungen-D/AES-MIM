@@ -136,6 +136,30 @@ void echo(int fd) {
   }
 }
 
+int psk(int sockfd)
+{
+    int flag = 1; // 若接收到的与发送的相同，则为0，否则为非0
+    unsigned char ch[SK_BUF_MAX], text[SK_BUF_MAX];
+    unsigned char *w;                                   // 保存客户端返回的密文
+    unsigned char key[32] = "0a12541bc5a2d6890f2536ffccab2e"; // 预共享密钥
+
+    bzero(ch,SK_BUF_MAX);
+    gen_random_bytes(ch, 0x20); // 得到随机字符串
+    // printf("psk string:%s\n\n", ch);
+
+    write(sockfd, ch, SK_BUF_MAX); // 明文发送给客户端
+    bzero(text, SK_BUF_MAX);
+    readn(sockfd, text, SK_BUF_MAX);
+
+    w = AES_init(key, sizeof(key));
+    AES_set_iv(NULL);
+    AES_gcm_decrypt(text, SK_BUF_MAX, text, w);
+    // printf("text: %s\n", text);
+    flag = strncmp(ch, text, 0x20);
+
+    return flag;
+}
+
 int main(int argc, char **argv) {
   int sockfd, conn_fd;
   char recv_buf[SK_BUF_MAX], send_buf[SK_BUF_MAX];
@@ -166,6 +190,13 @@ int main(int argc, char **argv) {
     die("[!] Error on accept");
   }
 
+  int flag = psk(conn_fd);
+  if (flag) {
+    printf("[!] psk not pass\n");
+    exit(1);
+  } else
+    printf("[!] psk pass\n\n");
+
   mpz_t s;
   mpz_init(s);
   exchange_dh_key(conn_fd, s);
@@ -179,3 +210,4 @@ int main(int argc, char **argv) {
   close(conn_fd);
   return 0;
 }
+

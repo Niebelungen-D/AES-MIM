@@ -17,6 +17,8 @@
 #define SK_BUF_MAX 1024
 uint8_t AES_key[0x20];
 
+
+
 void die(const char *msg) {
   perror(msg);
   exit(1);
@@ -109,6 +111,27 @@ void exchange_dh_key(int sockfd, mpz_t s) {
   gmp_printf("[+] share key S: %Zd\n\n", s);
 }
 
+// 客户端psk
+void psk(int sockfd)
+{
+    unsigned char text[SK_BUF_MAX], buf[SK_BUF_MAX];                                           // 存放接收到的密文
+    unsigned char key[32] = "0a12541bc5a2d6890f2536ffccab2e";         // 预共享密钥
+    uint8_t msg[0x10], mac[0x10];
+    bzero(msg, sizeof(msg));
+    bzero(mac, sizeof(mac));
+
+    uint8_t *w;
+    bzero(text, SK_BUF_MAX);
+    readn(sockfd, text, SK_BUF_MAX);
+    printf("[+] psk message:%s\n", text);
+    // encrypt string
+    w = AES_init(key, sizeof(key));
+    AES_set_iv(NULL);
+    AES_gcm_encrypt(text, SK_BUF_MAX, buf, w, msg, mac);
+    AES_free(w);
+    writen(sockfd, buf, SK_BUF_MAX);
+}
+
 void echo(int fd) {
   uint8_t *w; // expanded key
   int cnt = 0;
@@ -171,6 +194,8 @@ int main(int argc, char *argv[]) {
   }
   printf("[+] Server Connected\n");
 
+
+  // psk(sockfd);
   // recv/send data
   printf("[*] Now exchange key\n");
   mpz_t s;
